@@ -26,7 +26,7 @@ Phase 1:
 
 - Build out the initial data model ✅
 - Build out the underlying apis ✅
-- Document the api using JSDoc or whatever MCP needs
+- Write up server.tool() calls to explain how to use the tools. This seems like a lot of code, but I'll do it if I have to. Would be nice if it just used an api spec or something.
 
 Phase 2:
 
