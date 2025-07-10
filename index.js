@@ -8,7 +8,7 @@ import express from "express";
 var app = express();
 app.use(express.json());
 
-app.get("/inmate", async function (req, res) {
+app.get("/inmates", async function (req, res) {
   const unassigned = req.query.unassigned === "true" || false;
   async function getAllInmates() {
     const users = await sql`
@@ -21,14 +21,16 @@ app.get("/inmate", async function (req, res) {
   async function getUnassignedInmates() {
     const unassignedPrisoners = await sql`select
       i.first_name,
-      i.id,
       i.last_name,
-      a.inmate_id
+      i.is_violent,
+      i.is_juvenile,
+      i.id
     from
       public.inmate i
       left outer join public.assignment a on i.id = a.inmate_id
     where
-      a.inmate_id is null`;
+      a.inmate_id is null OR
+      a.status != 'active'`;
     return unassignedPrisoners;
   }
 
@@ -38,7 +40,7 @@ app.get("/inmate", async function (req, res) {
   res.json(inmates);
 });
 
-app.get("/inmate/:id", async function (req, res) {
+app.get("/inmates/:id", async function (req, res) {
   const id = req.params.id;
   async function getInmateById(id) {
     const inmate = await sql`
@@ -49,7 +51,7 @@ app.get("/inmate/:id", async function (req, res) {
   res.json(await getInmateById(id));
 });
 
-app.post("/inmate", async function (req, res) {
+app.post("/inmates", async function (req, res) {
   async function addNewInmate() {
     const data = req.body; // Access the parsed JSON data
     const users = await sql`
@@ -65,7 +67,7 @@ app.post("/inmate", async function (req, res) {
   res.json(result);
 });
 
-app.get("/cell/:prisonId", async function (req, res) {
+app.get("/cells/:prisonId", async function (req, res) {
   async function getAllCells() {
     const prisonId = req.params.prisonId;
     const users = await sql`
@@ -79,7 +81,7 @@ app.get("/cell/:prisonId", async function (req, res) {
   res.json(cells);
 });
 
-app.post("/cell", async function (req, res) {
+app.post("/cells", async function (req, res) {
   async function createCell() {
     const data = req.body;
     const cell = await sql`
@@ -94,7 +96,7 @@ app.post("/cell", async function (req, res) {
   res.json(cell);
 });
 
-app.get("/prison", async function (req, res) {
+app.get("/prisons", async function (req, res) {
   async function getAllPrisons() {
     const prisons = await sql`
       select * from 
@@ -106,7 +108,7 @@ app.get("/prison", async function (req, res) {
   res.json(prisons);
 });
 
-app.get("/prison/:id/cellOccupancy", async function (req, res) {
+app.get("/prisons/:id/cellOccupancy", async function (req, res) {
   const id = req.params.id;
   async function getPrisonOccupancy(id) {
     const prisonData = await sql`
@@ -132,7 +134,7 @@ app.get("/prison/:id/cellOccupancy", async function (req, res) {
   res.json(prisonData);
 });
 
-app.post("/officer", async function (req, res) {
+app.post("/officers", async function (req, res) {
   async function addNewOfficer() {
     const data = req.body; // Access the parsed JSON data
     const officer = await sql`
@@ -148,7 +150,7 @@ app.post("/officer", async function (req, res) {
   res.json(result);
 });
 
-app.post("/assignment/:inmateId", async function (req, res) {
+app.post("/assignments/:inmateId", async function (req, res) {
   // situations:
   // release from prison: "how do I handle that?"
   async function assignInmateToCell() {
@@ -176,7 +178,7 @@ app.post("/assignment/:inmateId", async function (req, res) {
   res.json(result);
 });
 
-app.post("/assignment/:inmateId/release", async function (req, res) {
+app.post("/assignments/:inmateId/release", async function (req, res) {
   async function assignInmateToCell() {
     const inmateId = req.params.inmateId;
     const inmateAssignment = await sql`
@@ -193,7 +195,7 @@ app.post("/assignment/:inmateId/release", async function (req, res) {
   res.json(result);
 });
 
-app.get("/inmate/:prisonId/:cellId", async function (req, res) {
+app.get("/inmates/:prisonId/:cellId", async function (req, res) {
   const prisonId = req.params.prisonId;
   const cellId = req.params.cellId;
 
