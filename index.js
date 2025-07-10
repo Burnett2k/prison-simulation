@@ -19,7 +19,7 @@ app.get("/inmates", async function (req, res) {
   }
 
   async function getUnassignedInmates() {
-    const unassignedPrisoners = await sql`select
+    const unassignedInmates = await sql`select
       i.first_name,
       i.last_name,
       i.is_violent,
@@ -31,7 +31,7 @@ app.get("/inmates", async function (req, res) {
     where
       a.inmate_id is null OR
       a.status != 'active'`;
-    return unassignedPrisoners;
+    return unassignedInmates;
   }
 
   const inmates = unassigned
@@ -156,8 +156,8 @@ app.post("/assignments/:inmateId", async function (req, res) {
   async function assignInmateToCell() {
     const data = req.body; // Access the parsed JSON data
     const inmateId = req.params.inmateId;
-    const [_, newAssignment] = await sql.begin(async (sql) => {
-      const [prisonerAssignment] = await sql`
+    const newAssignment = await sql.begin(async (sql) => {
+      await sql`
       -- End current assignment if it exists
       UPDATE public.assignment 
       SET status = 'transferred', 
@@ -170,7 +170,7 @@ app.post("/assignments/:inmateId", async function (req, res) {
       VALUES (${inmateId}, ${data.cellId}, ${data.officerId}, ${data.prisonId}, ${data.reason})
       returning *;
       `;
-      return [_, newAssignment];
+      return newAssignment;
     });
     return newAssignment;
   }
