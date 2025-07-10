@@ -40,15 +40,15 @@ app.get("/inmates", async function (req, res) {
   res.json(inmates);
 });
 
-app.get("/inmates/:id", async function (req, res) {
-  const id = req.params.id;
+app.get("/inmates/:inmateId", async function (req, res) {
+  const inmateId = req.params.inmateId;
   async function getInmateById(id) {
     const inmate = await sql`
     select * from public.inmate
     where id = ${id}`;
     return inmate;
   }
-  res.json(await getInmateById(id));
+  res.json(await getInmateById(inmateId));
 });
 
 app.post("/inmates", async function (req, res) {
@@ -108,8 +108,8 @@ app.get("/prisons", async function (req, res) {
   res.json(prisons);
 });
 
-app.get("/prisons/:id/cellOccupancy", async function (req, res) {
-  const id = req.params.id;
+app.get("/prisons/:prisonId/cellOccupancy", async function (req, res) {
+  const prisonId = req.params.prisonId;
   async function getPrisonOccupancy(id) {
     const prisonData = await sql`
           SELECT 
@@ -130,7 +130,7 @@ app.get("/prisons/:id/cellOccupancy", async function (req, res) {
     `;
     return prisonData;
   }
-  const prisonData = await getPrisonOccupancy(id);
+  const prisonData = await getPrisonOccupancy(prisonId);
   res.json(prisonData);
 });
 
@@ -151,8 +151,6 @@ app.post("/officers", async function (req, res) {
 });
 
 app.post("/assignments/:inmateId", async function (req, res) {
-  // situations:
-  // release from prison: "how do I handle that?"
   async function assignInmateToCell() {
     const data = req.body; // Access the parsed JSON data
     const inmateId = req.params.inmateId;
@@ -178,20 +176,43 @@ app.post("/assignments/:inmateId", async function (req, res) {
   res.json(result);
 });
 
+// todo this hasn't been implemented yet.
 app.post("/assignments/:inmateId/release", async function (req, res) {
-  async function assignInmateToCell() {
+  async function releaseInmate() {
     const inmateId = req.params.inmateId;
-    const inmateAssignment = await sql`
-        -- End current assignment if it exists
+    const data = req.body; // for reason, officer_id
+
+    const result = await sql.begin(async (sql) => {
+      // Get current assignment details before ending it
+      const [currentAssignment] = await sql`
+        SELECT cell_id, prison_id FROM public.assignment 
+        WHERE inmate_id = ${inmateId} AND status = 'active'
+      `;
+
+      // End current assignment
+      await sql`
         UPDATE public.assignment 
-        SET status = 'released', 
-            ended_at = NOW(),
-            reason = 'good behavior'
+        SET status = 'transferred', 
+            ended_at = NOW()
         WHERE inmate_id = ${inmateId} AND status = 'active';
-    `;
-    return inmateAssignment;
+      `;
+
+      // Create release record using the same cell_id
+      const [releaseRecord] = await sql`
+        INSERT INTO public.assignment (inmate_id, cell_id, officer_id, prison_id, reason, status, ended_at)
+        VALUES (${inmateId}, ${currentAssignment.cell_id}, ${data.officerId}, ${
+        data.prisonId
+      }, ${data.reason || "released"}, 'released', NOW())
+        RETURNING *;
+      `;
+
+      return releaseRecord;
+    });
+
+    return result;
   }
-  const result = await assignInmateToCell();
+
+  const result = await releaseInmate();
   res.json(result);
 });
 
