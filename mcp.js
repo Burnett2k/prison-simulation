@@ -15,7 +15,7 @@ const server = new McpServer({
   },
 });
 
-// helper to make api requests
+// Helper to make API requests with proper error handling
 async function makeRequest(url, method = "GET", data = null) {
   const headers = {
     "User-Agent": USER_AGENT,
@@ -33,12 +33,13 @@ async function makeRequest(url, method = "GET", data = null) {
 
     const response = await fetch(fullUrl, options);
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
     }
     return await response.json();
   } catch (error) {
     console.error("Error making API request:", error);
-    return null;
+    throw error;
   }
 }
 
@@ -54,29 +55,30 @@ server.tool(
       ),
   },
   async ({ unassigned }) => {
-    const data = await makeRequest(`/inmates?unassigned=${unassigned}`);
+    try {
+      const data = await makeRequest(`/inmates?unassigned=${unassigned}`);
 
-    if (!data) {
       return {
         content: [
           {
             type: "text",
-            text: "Failed to retrieve inmates data",
+            text: `List of ${
+              unassigned ? "unassigned" : "all"
+            } inmates:\n${JSON.stringify(data, null, 2)}`,
           },
         ],
       };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Failed to retrieve inmates data: ${error.message}`,
+          },
+        ],
+        isError: true,
+      };
     }
-
-    const inmatesText = `List of inmates: ${JSON.stringify(data, null, 2)}`;
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: inmatesText,
-        },
-      ],
-    };
   }
 );
 
@@ -88,29 +90,38 @@ server.tool(
     inmateId: z.string().describe("The ID of the inmate to retrieve"),
   },
   async ({ inmateId }) => {
-    const data = await makeRequest(`/inmates/${inmateId}`);
+    try {
+      // Validate that inmateId is a valid number
+      const id = parseInt(inmateId);
+      if (isNaN(id) || id <= 0) {
+        throw new Error("Inmate ID must be a positive integer");
+      }
 
-    if (!data) {
+      const data = await makeRequest(`/inmates/${id}`);
+
       return {
         content: [
           {
             type: "text",
-            text: "Failed to retrieve inmate data",
+            text: `Inmate details for ID ${id}:\n${JSON.stringify(
+              data,
+              null,
+              2
+            )}`,
           },
         ],
       };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Failed to retrieve inmate data: ${error.message}`,
+          },
+        ],
+        isError: true,
+      };
     }
-
-    const inmateText = `Inmate details: ${JSON.stringify(data, null, 2)}`;
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: inmateText,
-        },
-      ],
-    };
   }
 );
 
@@ -119,44 +130,43 @@ server.tool(
   "add-inmate",
   "Add a new inmate to the system",
   {
-    firstName: z.string().describe("First name of the inmate"),
-    lastName: z.string().describe("Last name of the inmate"),
+    firstName: z.string().min(1).describe("First name of the inmate"),
+    lastName: z.string().min(1).describe("Last name of the inmate"),
     isViolent: z.boolean().describe("Whether the inmate is violent"),
     isJuvenile: z.boolean().describe("Whether the inmate is a juvenile"),
   },
   async ({ firstName, lastName, isViolent, isJuvenile }) => {
-    const data = await makeRequest("/inmates", "POST", {
-      firstName,
-      lastName,
-      isViolent,
-      isJuvenile,
-    });
+    try {
+      const data = await makeRequest("/inmates", "POST", {
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        isViolent,
+        isJuvenile,
+      });
 
-    if (!data) {
       return {
         content: [
           {
             type: "text",
-            text: "Failed to add inmate",
+            text: `Inmate added successfully:\n${JSON.stringify(
+              data,
+              null,
+              2
+            )}`,
           },
         ],
       };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Failed to add inmate: ${error.message}`,
+          },
+        ],
+        isError: true,
+      };
     }
-
-    const resultText = `Inmate added successfully: ${JSON.stringify(
-      data,
-      null,
-      2
-    )}`;
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: resultText,
-        },
-      ],
-    };
   }
 );
 
@@ -168,33 +178,33 @@ server.tool(
     prisonId: z.string().describe("The ID of the prison"),
   },
   async ({ prisonId }) => {
-    const data = await makeRequest(`/cells/${prisonId}`);
+    try {
+      const id = parseInt(prisonId);
+      if (isNaN(id) || id <= 0) {
+        throw new Error("Prison ID must be a positive integer");
+      }
 
-    if (!data) {
+      const data = await makeRequest(`/cells/${id}`);
+
       return {
         content: [
           {
             type: "text",
-            text: "Failed to retrieve cells data",
+            text: `Cells for prison ${id}:\n${JSON.stringify(data, null, 2)}`,
           },
         ],
       };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Failed to retrieve cells data: ${error.message}`,
+          },
+        ],
+        isError: true,
+      };
     }
-
-    const cellsText = `Cells for prison ${prisonId}: ${JSON.stringify(
-      data,
-      null,
-      2
-    )}`;
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: cellsText,
-        },
-      ],
-    };
   }
 );
 
@@ -203,68 +213,76 @@ server.tool(
   "create-cell",
   "Create a new cell in a prison",
   {
-    capacity: z.number().describe("The capacity of the cell"),
+    capacity: z
+      .number()
+      .int()
+      .min(1)
+      .max(32767)
+      .describe("The capacity of the cell (1-32767, stored as smallint)"),
     prisonId: z.string().describe("The ID of the prison"),
   },
   async ({ capacity, prisonId }) => {
-    const data = await makeRequest("/cells", "POST", {
-      capacity,
-      prisonId,
-    });
+    try {
+      const id = parseInt(prisonId);
+      if (isNaN(id) || id <= 0) {
+        throw new Error("Prison ID must be a positive integer");
+      }
 
-    if (!data) {
+      const data = await makeRequest("/cells", "POST", {
+        capacity,
+        prisonId: id,
+      });
+
       return {
         content: [
           {
             type: "text",
-            text: "Failed to create cell",
+            text: `Cell created successfully:\n${JSON.stringify(
+              data,
+              null,
+              2
+            )}`,
           },
         ],
       };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Failed to create cell: ${error.message}`,
+          },
+        ],
+        isError: true,
+      };
     }
-
-    const resultText = `Cell created successfully: ${JSON.stringify(
-      data,
-      null,
-      2
-    )}`;
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: resultText,
-        },
-      ],
-    };
   }
 );
 
 // Get all prisons
 server.tool("get-prisons", "Get a list of all prisons", {}, async () => {
-  const data = await makeRequest("/prisons");
+  try {
+    const data = await makeRequest("/prisons");
 
-  if (!data) {
     return {
       content: [
         {
           type: "text",
-          text: "Failed to retrieve prisons data",
+          text: `List of prisons:\n${JSON.stringify(data, null, 2)}`,
         },
       ],
     };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Failed to retrieve prisons data: ${error.message}`,
+        },
+      ],
+      isError: true,
+    };
   }
-
-  const prisonsText = `List of prisons: ${JSON.stringify(data, null, 2)}`;
-
-  return {
-    content: [
-      {
-        type: "text",
-        text: prisonsText,
-      },
-    ],
-  };
 });
 
 // Get prison cell occupancy
@@ -275,33 +293,37 @@ server.tool(
     prisonId: z.string().describe("The ID of the prison"),
   },
   async ({ prisonId }) => {
-    const data = await makeRequest(`/prisons/${prisonId}/cellOccupancy`);
+    try {
+      const id = parseInt(prisonId);
+      if (isNaN(id) || id <= 0) {
+        throw new Error("Prison ID must be a positive integer");
+      }
 
-    if (!data) {
+      const data = await makeRequest(`/prisons/${id}/cellOccupancy`);
+
       return {
         content: [
           {
             type: "text",
-            text: "Failed to retrieve prison occupancy data",
+            text: `Prison ${id} occupancy data:\n${JSON.stringify(
+              data,
+              null,
+              2
+            )}`,
           },
         ],
       };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Failed to retrieve prison occupancy data: ${error.message}`,
+          },
+        ],
+        isError: true,
+      };
     }
-
-    const occupancyText = `Prison ${prisonId} occupancy: ${JSON.stringify(
-      data,
-      null,
-      2
-    )}`;
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: occupancyText,
-        },
-      ],
-    };
   }
 );
 
@@ -310,44 +332,48 @@ server.tool(
   "add-officer",
   "Add a new officer to the system",
   {
-    firstName: z.string().describe("First name of the officer"),
-    lastName: z.string().describe("Last name of the officer"),
+    firstName: z.string().min(1).describe("First name of the officer"),
+    lastName: z.string().min(1).describe("Last name of the officer"),
     prisonId: z
       .string()
       .describe("The ID of the prison where the officer works"),
   },
   async ({ firstName, lastName, prisonId }) => {
-    const data = await makeRequest("/officers", "POST", {
-      firstName,
-      lastName,
-      prisonId,
-    });
+    try {
+      const id = parseInt(prisonId);
+      if (isNaN(id) || id <= 0) {
+        throw new Error("Prison ID must be a positive integer");
+      }
 
-    if (!data) {
+      const data = await makeRequest("/officers", "POST", {
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        prisonId: id,
+      });
+
       return {
         content: [
           {
             type: "text",
-            text: "Failed to add officer",
+            text: `Officer added successfully:\n${JSON.stringify(
+              data,
+              null,
+              2
+            )}`,
           },
         ],
       };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Failed to add officer: ${error.message}`,
+          },
+        ],
+        isError: true,
+      };
     }
-
-    const resultText = `Officer added successfully: ${JSON.stringify(
-      data,
-      null,
-      2
-    )}`;
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: resultText,
-        },
-      ],
-    };
   }
 );
 
@@ -362,45 +388,71 @@ server.tool(
       .string()
       .describe("The ID of the officer making the assignment"),
     prisonId: z.string().describe("The ID of the prison"),
-    reason: z.string().describe("The reason for the assignment"),
+    reason: z
+      .string()
+      .max(50)
+      .describe("The reason for the assignment (max 50 characters)"),
   },
   async ({ inmateId, cellId, officerId, prisonId, reason }) => {
-    const data = await makeRequest(`/assignments/${inmateId}`, "POST", {
-      cellId,
-      officerId,
-      prisonId,
-      reason,
-    });
+    try {
+      // Validate all IDs are positive integers
+      const inmate_id = parseInt(inmateId);
+      const cell_id = parseInt(cellId);
+      const officer_id = parseInt(officerId);
+      const prison_id = parseInt(prisonId);
 
-    if (!data) {
+      if (isNaN(inmate_id) || inmate_id <= 0) {
+        throw new Error("Inmate ID must be a positive integer");
+      }
+      if (isNaN(cell_id) || cell_id <= 0) {
+        throw new Error("Cell ID must be a positive integer");
+      }
+      if (isNaN(officer_id) || officer_id <= 0) {
+        throw new Error("Officer ID must be a positive integer");
+      }
+      if (isNaN(prison_id) || prison_id <= 0) {
+        throw new Error("Prison ID must be a positive integer");
+      }
+
+      // Validate reason length
+      if (reason.length > 50) {
+        throw new Error("Reason must be 50 characters or less");
+      }
+
+      const data = await makeRequest(`/assignments/${inmate_id}`, "POST", {
+        cellId: cell_id,
+        officerId: officer_id,
+        prisonId: prison_id,
+        reason: reason.trim(),
+      });
+
       return {
         content: [
           {
             type: "text",
-            text: "Failed to assign inmate",
+            text: `Inmate assigned successfully:\n${JSON.stringify(
+              data,
+              null,
+              2
+            )}`,
           },
         ],
       };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Failed to assign inmate: ${error.message}`,
+          },
+        ],
+        isError: true,
+      };
     }
-
-    const resultText = `Inmate assigned successfully: ${JSON.stringify(
-      data,
-      null,
-      2
-    )}`;
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: resultText,
-        },
-      ],
-    };
   }
 );
 
-//release inmate
+// Release inmate
 server.tool(
   "release-inmate",
   "Release an inmate from prison",
@@ -412,41 +464,67 @@ server.tool(
     prisonId: z.string().describe("The ID of the prison releasing the inmate"),
     reason: z
       .string()
+      .max(50)
       .optional()
-      .describe("The reason for release (optional, defaults to 'released')"),
+      .describe(
+        "The reason for release (optional, defaults to 'released', max 50 characters)"
+      ),
   },
   async ({ inmateId, officerId, prisonId, reason }) => {
-    const data = await makeRequest(`/assignments/${inmateId}/release`, "POST", {
-      officerId,
-      prisonId,
-      reason,
-    });
+    try {
+      // Validate all IDs are positive integers
+      const inmate_id = parseInt(inmateId);
+      const officer_id = parseInt(officerId);
+      const prison_id = parseInt(prisonId);
 
-    if (!data) {
+      if (isNaN(inmate_id) || inmate_id <= 0) {
+        throw new Error("Inmate ID must be a positive integer");
+      }
+      if (isNaN(officer_id) || officer_id <= 0) {
+        throw new Error("Officer ID must be a positive integer");
+      }
+      if (isNaN(prison_id) || prison_id <= 0) {
+        throw new Error("Prison ID must be a positive integer");
+      }
+
+      // Validate reason length if provided
+      if (reason && reason.length > 50) {
+        throw new Error("Reason must be 50 characters or less");
+      }
+
+      const data = await makeRequest(
+        `/assignments/${inmate_id}/release`,
+        "POST",
+        {
+          officerId: officer_id,
+          prisonId: prison_id,
+          reason: reason ? reason.trim() : undefined,
+        }
+      );
+
       return {
         content: [
           {
             type: "text",
-            text: "Failed to release inmate",
+            text: `Inmate released successfully:\n${JSON.stringify(
+              data,
+              null,
+              2
+            )}`,
           },
         ],
       };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Failed to release inmate: ${error.message}`,
+          },
+        ],
+        isError: true,
+      };
     }
-
-    const resultText = `Inmate released successfully: ${JSON.stringify(
-      data,
-      null,
-      2
-    )}`;
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: resultText,
-        },
-      ],
-    };
   }
 );
 
@@ -459,33 +537,42 @@ server.tool(
     cellId: z.string().describe("The ID of the cell"),
   },
   async ({ prisonId, cellId }) => {
-    const data = await makeRequest(`/inmates/${prisonId}/${cellId}`);
+    try {
+      const prison_id = parseInt(prisonId);
+      const cell_id = parseInt(cellId);
 
-    if (!data) {
+      if (isNaN(prison_id) || prison_id <= 0) {
+        throw new Error("Prison ID must be a positive integer");
+      }
+      if (isNaN(cell_id) || cell_id <= 0) {
+        throw new Error("Cell ID must be a positive integer");
+      }
+
+      const data = await makeRequest(`/inmates/${prison_id}/${cell_id}`);
+
       return {
         content: [
           {
             type: "text",
-            text: "Failed to retrieve cell occupancy data",
+            text: `Cell ${cell_id} occupancy in prison ${prison_id}:\n${JSON.stringify(
+              data,
+              null,
+              2
+            )}`,
           },
         ],
       };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Failed to retrieve cell occupancy data: ${error.message}`,
+          },
+        ],
+        isError: true,
+      };
     }
-
-    const occupancyText = `Cell ${cellId} occupancy in prison ${prisonId}: ${JSON.stringify(
-      data,
-      null,
-      2
-    )}`;
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: occupancyText,
-        },
-      ],
-    };
   }
 );
 
